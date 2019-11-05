@@ -321,12 +321,13 @@ class BftTester:
             n = await self.metrics.get(stale_node, *key)
             return n == last_exec_seq_num
 
-    async def wait_for_replicas_to_checkpoint(self, replica_ids, checkpoint_num):
+    async def wait_for_replicas_to_checkpoint(
+            self, replica_ids, checkpoint_num, timeout=30):
         """
         Wait for every replica in `replicas` to take a checkpoint.
         Check every .5 seconds and give fail after 30 seconds.
         """
-        with trio.fail_after(30): # seconds
+        with trio.fail_after(timeout): # seconds
             async with trio.open_nursery() as nursery:
                 for replica_id in replica_ids:
                     nursery.start_soon(self.wait_for_checkpoint, replica_id,
@@ -337,7 +338,7 @@ class BftTester:
         while True:
             with trio.move_on_after(.5): # seconds
                 n = await self.metrics.get(replica_id, *key)
-                if n == checkpoint_num:
+                if n >= checkpoint_num:
                     return
 
     async def assert_state_transfer_not_started_all_up_nodes(self, testcase):

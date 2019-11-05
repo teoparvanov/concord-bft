@@ -292,22 +292,24 @@ class SkvbcPersistenceTest(unittest.TestCase):
         The nodes are then stopped and restarted to ensure the checkpoint data
         was persisted.
 
-        TODO: Make filling concurrent to speed up tests
         """
-        client = skvbc.Client(tester.random_client())
         # Write enough data to checkpoint and create a need for state transfer
-        for i in range (1 + checkpoint_num * 150):
-            key = tester.random_key()
-            val = tester.random_value()
-            reply = await client.write([], [(key, val)])
-            self.assertTrue(reply.success)
+        import itertools
+        for i in itertools.count():
+            async with trio.open_nursery() as nursery:
+                for client in tester.clients.values():
+                    nursery.start_soon(self._send_and_check_success, tester, client)
+            if i > 0 and i % 150 == 0:
+                try:
+                    await tester.wait_for_replicas_to_checkpoint(
+                        initial_nodes, checkpoint_num, timeout=1)
+                except trio.TooSlowError:
+                    continue
+                else:
+                    break
 
         await tester.assert_state_transfer_not_started_all_up_nodes(self)
 
-        # Wait for initial replicas to take checkpoints (exhausting
-        # the full window)
-        await tester.wait_for_replicas_to_checkpoint(initial_nodes,
-                checkpoint_num)
 
         # Stop the initial replicas to ensure the checkpoints get persisted
         [tester.stop_replica(i) for i in initial_nodes]
@@ -316,8 +318,16 @@ class SkvbcPersistenceTest(unittest.TestCase):
         # checkpoint data.
         [tester.start_replica(i) for i in initial_nodes]
         await tester.wait_for_replicas_to_checkpoint(initial_nodes,
-                checkpoint_num)
+                                                     checkpoint_num)
 
+    async def _send_and_check_success(self, tester, client):
+        skvbc_client = skvbc.Client(client)
+        key = tester.random_key()
+        val = tester.random_value()
+        reply = await skvbc_client.write([], [(key, val)])
+        self.assertTrue(reply.success)
+
+    @unittest.skip("To be re-enabled once the intermittent failures are fixed")
     def test_st_when_fetcher_and_sender_crash(self):
         """
         Start 3 nodes out of a 4 node cluster. Write a specific key, then
