@@ -35,7 +35,9 @@ def start_replica_cmd(builddir, replica_id):
             "-k", KEY_FILE_PREFIX,
             "-i", str(replica_id),
             "-s", statusTimerMilli,
-            "-v", viewChangeTimeoutMilli]
+            "-v", viewChangeTimeoutMilli,
+            "-p"
+            ]
 
 
 class SkvbcLongRunningTest(unittest.TestCase):
@@ -46,7 +48,17 @@ class SkvbcLongRunningTest(unittest.TestCase):
                       selected_configs=lambda n, f, c: n == 7)
     async def test_stability(self, bft_network):
         bft_network.start_all_replicas()
+        basic_skvbc_test = SkvbcTest()
         with trio.move_on_after(seconds=ONE_HOUR_IN_SECONDS):
             while True:
-                await SkvbcTest().test_get_block_data(bft_network=bft_network, already_in_trio=True)
-                trio.sleep(seconds=10)
+                await basic_skvbc_test.test_get_block_data(bft_network=bft_network, already_in_trio=True)
+
+                await trio.sleep(seconds=10)
+
+                await basic_skvbc_test.test_state_transfer(bft_network=bft_network, already_in_trio=True)
+                bft_network.start_all_replicas()
+                for r_id in bft_network.all_replicas():
+                    key = ['replica', 'Counters', 'receivedStateTransferMsgs']
+                    bft_network.prior_received_st_messages[r_id] = await bft_network.metrics.get(r_id, *key)
+
+                await trio.sleep(seconds=10)

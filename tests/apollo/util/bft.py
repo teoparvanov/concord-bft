@@ -163,6 +163,8 @@ class BftTestNetwork:
         self.metrics = None
         self.is_existing = False
 
+        self.prior_received_st_messages = {r.id: 0 for r in self.replicas}
+
     def _generate_crypto_keys(self):
         keygen = os.path.join(self.toolsdir, "GenerateConcordKeys")
         args = [keygen, "-n", str(self.config.n), "-f", str(self.config.f)]
@@ -460,7 +462,7 @@ class BftTestNetwork:
             with trio.move_on_after(.5): # seconds
                 key = ['replica', 'Counters', 'receivedStateTransferMsgs']
                 n = await self.metrics.get(replica.id, *key)
-                if n > 0:
+                if n > self.prior_received_st_messages[replica.id]:
                     cancel_scope.cancel()
 
     async def wait_for_state_transfer_to_stop(
@@ -577,7 +579,8 @@ class BftTestNetwork:
     async def _assert_state_transfer_not_started(self, replica):
         key = ['replica', 'Counters', 'receivedStateTransferMsgs']
         n = await self.metrics.get(replica.id, *key)
-        assert n == 0
+        assert n == self.prior_received_st_messages[replica.id]
+        self.prior_received_st_messages[replica.id] = n
 
     async def wait_for(self, predicate, timeout, interval):
         """
